@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AIお絵描きマン</title>
+
+<!-- iPad ホーム画面アイコン / PWA向け基本メタ -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="AIお絵描きマン">
+<link id="appleIconLink" rel="apple-touch-icon" href="">
+<link id="favicon" rel="icon" type="image/png" href="">
+
+<style>
+  :root { --gap: 12px; }
+  body { font-family: system-ui, sans-serif; margin: 16px; background:#f7f7f7; }
+  h1 { font-size: 1.15rem; margin-bottom: 8px; display:flex; align-items:center; gap:8px; }
+  .app-icon { width: 32px; height: 32px; border-radius: 8px; border: 1px solid #e5e7eb; }
+  .panel { background:#fff; padding:12px; border-radius:8px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 12px; }
+  .row { display:flex; gap:var(--gap); flex-wrap: wrap; align-items:center; }
+  button { padding:10px 14px; border-radius:8px; border:1px solid #ccc; background:#fff; cursor:pointer; font-weight:600; }
+  button.primary { background:#2563eb; color:#fff; border-color:#1f56c7; }
+  button.secondary { background:#f1f5f9; }
+  canvas { background:#ffffff; border:1px solid #ddd; border-radius:8px; touch-action:none; }
+  .palette-grid { display:grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap:8px; }
+  .palette-item { display:flex; align-items:center; gap:8px; padding:8px; border:1px solid #ddd; border-radius:8px; cursor:pointer; background:#fff; }
+  .palette-item:hover { box-shadow:0 1px 6px rgba(0,0,0,.12); }
+  .swatch { display:grid; grid-template-columns: repeat(6, 1fr); gap:2px; width:144px; height:28px; overflow:hidden; border-radius:6px; border:1px solid #ccc; }
+  .swatch > span { display:block; }
+  .palette-name { font-size:.9rem; color:#333; }
+  .active { outline: 2px solid #2563eb; }
+  .small { font-size:.9rem; color:#666; }
+  .status { font-size:.9rem; color:#374151; padding:6px 10px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:6px; }
+</style>
+</head>
+<body>
+<h1>
+  <img id="appIconUI" class="app-icon" alt="アプリアイコン">
+  <span>AIお絵描きマン</span>
+</h1>
+
+<!-- 上部に機能を集中 -->
+<div class="panel">
+  <div class="row">
+    <button id="drawMode" class="primary">線を描く</button>
+    <button id="paletteMode" class="secondary">カラーパターンを選ぶ</button>
+    <button id="fillBtn" class="secondary">色塗り</button>
+    <button id="resetBtn">リセット</button>
+    <button id="saveBtn">保存</button>
+    <span id="status" class="status">準備OK：線を描いて、パレットを選び、色塗りを押してください。</span>
+  </div>
+  <div class="row">
+    <div class="palette-grid" id="paletteGrid"><!-- JSで描画 --></div>
+  </div>
+</div>
+
+<!-- キャンバス -->
+<div class="panel">
+  <div class="row">
+    <div>
+      <div class="small">線画キャンバス（黒線・太め固定）</div>
+      <canvas id="lineCanvas" width="960" height="640"></canvas>
+    </div>
+    <div>
+      <div class="small">結果プレビュー（自動色塗り）</div>
+      <canvas id="preview" width="960" height="640"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  // ===== 固定設定（UI非表示の内部デフォルト） =====
+  const PEN_COLOR = '#000000';      // 黒線
+  const PEN_WIDTH = 24;             // 太め固定
+  const THRESH_LUM = 200;           // 壁判定の輝度しきい値（暗い=壁）
+  const CANVAS_BG = '#ffffff';      // 背景（外側）白
+
+  // 自動リトライ用（ギャップ補正を段階的に強める）
+  const PASS_PARAMS = [
+    { dilate: 2, close: 1 },  // 1回目（通常）
+    { dilate: 3, close: 2 },  // 2回目（やや強め）
+    { dilate: 4, close: 3 },  // 3回目（強め）
+  ];
+
+  // ===== 5パターン（各5色以上） =====
+  const PALETTES = [
+    { name: 'Tokyo Pop',   colors: ['#1e3a8a','#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6'] },
+    { name: 'Pastel Garden', colors: ['#fce7f3','#fde68a','#d1fae5','#bfdbfe','#e9d5ff','#fca5a5'] },
+    { name: 'Earth & Sand',  colors: ['#f5f1e6','#8d6e63','#a1887f','#d7ccc8','#6d4c41','#bdb39c'] },
+    { name: 'Mono Accents',  colors: ['#ffffff','#111827','#6b7280','#9ca3af','#374151','#d1d5db'] },
+    { name: 'Retro Pixel',   colors: ['#ff595e','#1982c4','#6a4c93','#8ac926','#ffca3a','#00a896'] },
+  ];
+  let selectedPalette = PALETTES[0];
+
+  // 配色済みかどうか
+  let hasColorized = false;
+
+  // ===== DOM =====
+  const drawModeBtn  = document.getElementById('drawMode');
+  const paletteModeBtn = document.getElementById('paletteMode');
+  const fillBtn      = document.getElementById('fillBtn');
+  const resetBtn     = document.getElementById('resetBtn');
+  const saveBtn      = document.getElementById('saveBtn');
+  const statusEl     = document.getElementById('status');
+  const paletteGrid  = document.getElementById('paletteGrid');
+
+  const lineCanvas = document.getElementById('lineCanvas');
+  const preview    = document.getElementById('preview');
+  const lctx = lineCanvas.getContext('2d');
+  const pctx = preview.getContext('2d');
+
+  // ===== 初期化 =====
+  function initCanvas(ctx, canvas) {
+    ctx.fillStyle = CANVAS_BG;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  initCanvas(lctx, lineCanvas);
+  initCanvas(pctx, preview);
+
+  // ===== アイコン画像をオフライン生成（「絵」1文字）し、UIとmetaに反映 =====
+  (function setupAppIcon(){
+    const iconUrl = generateAppIcon(512,512, '絵');
+    document.getElementById('appIconUI').src = iconUrl;
+    document.getElementById('appleIconLink').href = iconUrl;
+    document.getElementById('favicon').href = iconUrl;
+  })();
+
+  /**
+   * 「絵」など任意1文字の漢字アイコンをCanvasで生成（完全オフライン）
+   * @param {number} W - 幅（推奨 512）
+   * @param {number} H - 高さ（推奨 512）
+   * @param {string} glyph - 描画する文字（例：'絵'）
+   * @returns {string} dataURL (PNG)
+   */
+  function generateAppIcon(W,H,glyph){
+    const c = document.createElement('canvas'); c.width=W; c.height=H;
+    const ctx = c.getContext('2d');
+
+    // 背景：角丸スクエア＋斜めグラデーション
+    const r = 96;
+    ctx.save();
+    roundRect(ctx, 16,16, W-32,H-32, r);
+    const g = ctx.createLinearGradient(0,0,W,H);
+    g.addColorStop(0, '#ff8a00');  // ポップなオレンジ
+    g.addColorStop(1, '#8b5cf6');  // パープル
+    ctx.fillStyle = g; ctx.fill();
+    ctx.clip();
+
+    // ドット（控えめな飾り）
+    for(let i=0;i<24;i++){
+      const x = Math.random()*W, y=Math.random()*H, s= Math.random()*8+4;
+      ctx.fillStyle = 'rgba(255,255,255,' + (0.08+Math.random()*0.12) + ')';
+      ctx.beginPath(); ctx.arc(x,y,s,0,Math.PI*2); ctx.fill();
+    }
+
+    // 中央の文字（日本語フォント優先のスタック）
+    // ※ システムにある日本語フォントが使われます（オフライン）
+    const fontStack = '"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",system-ui,sans-serif';
+    // 文字が収まるように少し小さめから微調整
+    let fontSize = 280; // 初期値
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(0,0,0,.25)'; ctx.shadowBlur=16; ctx.shadowOffsetY=6;
+
+    // 境界に収める簡易調整
+    function fits(size){
+      ctx.font = `bold ${size}px ${fontStack}`;
+      const m = ctx.measureText(glyph);
+      const w = m.width, h = size; // 漢字の高さはフォントサイズに近似
+      const margin = 60; // 四辺マージン
+      return (w < W - margin*2) && (h < H - margin*2);
+    }
+    while (!fits(fontSize) && fontSize > 200) fontSize -= 10;
+
+    ctx.font = `bold ${fontSize}px ${fontStack}`;
+    ctx.fillText(glyph, W/2, H/2+6);
+
+    // 輪郭のストロークで視認性UP（薄い影の上に白文字）
+    ctx.shadowColor='transparent';
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = 'rgba(255,255,255,.85)';
+    ctx.strokeText(glyph, W/2, H/2+6);
+
+    // ワンポイント：ペン（ブラシ）アイコン
+    const px = W*0.78, py=H*0.78, len=140;
+    ctx.save();
+    ctx.translate(px,py); ctx.rotate(-25*Math.PI/180);
+    // 軸
+    ctx.fillStyle = '#111827';
+    ctx.fillRect(-len/2, -9, len*0.65, 18);
+    // 毛
+    ctx.beginPath();
+    ctx.moveTo(len*0.15, -22);
+    ctx.lineTo(len*0.35, 0);
+    ctx.lineTo(len*0.15, 22);
+    ctx.closePath();
+    ctx.fillStyle='#ffd166'; ctx.fill();
+    // ハイライト
+    ctx.fillStyle='rgba(255,255,255,.35)';
+    ctx.fillRect(-len/2+6, -5, len*0.45, 4);
+    ctx.restore();
+
+    ctx.restore();
+
+    // 外枠の微シャドウ
+    ctx.strokeStyle='rgba(0,0,0,.08)';
+    ctx.lineWidth=2; roundRect(ctx,16,16,W-32,H-32,r); ctx.stroke();
+
+    return c.toDataURL('image/png');
+  }
+  function roundRect(ctx,x,y,w,h,r){ ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+  }
+
+  // ===== パレット描画（上部に表示） =====
+  function toHex6(c) {
+    const m = c.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!m) return '#000000';
+    if (m[1].length === 6) return '#' + m[1].toLowerCase();
+    const s = m[1].toLowerCase();
+    return '#' + s[0]+s[0]+s[1]+s[1]+s[2]+s[2];
+  }
+  function renderPalettes() {
+    paletteGrid.innerHTML = '';
+    PALETTES.forEach((p, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'palette-item';
+      btn.setAttribute('data-idx', idx);
+
+      const sw = document.createElement('div');
+      sw.className = 'swatch';
+      p.colors.slice(0,6).forEach(c => {
+        const s = document.createElement('span');
+        s.style.background = toHex6(c);
+        sw.appendChild(s);
+      });
+
+      const name = document.createElement('span');
+      name.className = 'palette-name';
+      name.textContent = p.name;
+
+      btn.appendChild(sw);
+      btn.appendChild(name);
+      btn.addEventListener('click', () => {
+        selectedPalette = p;
+        document.querySelectorAll('.palette-item').forEach(el => el.classList.remove('active'));
+        btn.classList.add('active');
+        setStatus(`パレット「${p.name}」を選択しました。線が閉じていれば「色塗り」で反映します。`);
+      });
+
+      if (idx === 0) btn.classList.add('active');
+      paletteGrid.appendChild(btn);
+    });
+  }
+  renderPalettes();
+
+  // ===== 線を描く（太め固定） =====
+  let drawEnabled = true;
+  let drawing = false;
+  let lastPt = null;
+
+  drawModeBtn.addEventListener('click', () => {
+    drawEnabled = true;
+    drawModeBtn.classList.add('primary');
+    paletteModeBtn.classList.remove('primary');
+    setStatus('描画モード：黒線（太め）で囲いを作ってください。');
+  });
+  paletteModeBtn.addEventListener('click', () => {
+    drawEnabled = false;
+    paletteModeBtn.classList.add('primary');
+    drawModeBtn.classList.remove('primary');
+    setStatus('パレット選択モード：上のスウォッチから色セットを選んでください。');
+  });
+
+  function getPos(e, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const y = (e.clientY - rect.top)  * (canvas.height / rect.height);
+    return { x: Math.round(x), y: Math.round(y) };
+  }
+
+  lineCanvas.addEventListener('pointerdown', (e) => {
+    if (!drawEnabled) return;
+    lineCanvas.setPointerCapture(e.pointerId);
+    drawing = true;
+    lastPt = getPos(e, lineCanvas);
+    drawPoint(lastPt);
+  });
+  lineCanvas.addEventListener('pointermove', (e) => {
+    if (!drawing || !drawEnabled) return;
+    const pt = getPos(e, lineCanvas);
+    drawLine(lastPt, pt);
+    lastPt = pt;
+  });
+  lineCanvas.addEventListener('pointerup', () => { drawing = false; });
+  lineCanvas.addEventListener('pointerleave', () => { drawing = false; });
+
+  function drawPoint(pt) {
+    lctx.save();
+    lctx.lineJoin = 'round';
+    lctx.lineCap = 'round';
+    lctx.fillStyle = PEN_COLOR;
+    lctx.beginPath();
+    lctx.arc(pt.x, pt.y, PEN_WIDTH/2, 0, Math.PI*2);
+    lctx.fill();
+    lctx.restore();
+  }
+  function drawLine(a, b) {
+    lctx.save();
+    lctx.lineJoin = 'round';
+    lctx.lineCap = 'round';
+    lctx.lineWidth = PEN_WIDTH;
+    lctx.strokeStyle = PEN_COLOR;
+    lctx.beginPath();
+    lctx.moveTo(a.x, a.y);
+    lctx.lineTo(b.x, b.y);
+    lctx.stroke();
+    lctx.restore();
+  }
+
+  // ===== 色塗り（自動多色・リトライ付き） =====
+  fillBtn.addEventListener('click', () => {
+    const W = lineCanvas.width, H = lineCanvas.height;
+    const base = lctx.getImageData(0,0,W,H);        // 線キャンバスの画素（黒線＋白背景）
+    const colors = selectedPalette.colors.map(toHex6);
+
+    let comps = null, barrier = null, outside = null, usedPass = -1;
+
+    for (let pass = 0; pass < PASS_PARAMS.length; pass++) {
+      const { dilate, close } = PASS_PARAMS[pass];
+
+      // 壁（二値）を生成（黒線を壁に）
+      barrier = thresholdToBarrier(base, W, H, THRESH_LUM);
+      if (dilate>0) barrier = dilateMask(barrier, W, H, dilate);
+      if (close>0)  { barrier = dilateMask(barrier, W, H, close); barrier = erodeMask(barrier, W, H, close); }
+
+      // 外側判定
+      outside = computeOutside(barrier, W, H);
+
+      // 内側（非壁・非外側）ラベリング
+      const interior = new Uint8Array(W*H);
+      for (let i=0;i<W*H;i++) interior[i] = (!barrier[i] && !outside[i]) ? 1 : 0;
+
+      comps = labelComponents(interior, W, H);
+      if (comps.length > 0) { usedPass = pass; break; }
+    }
+
+    if (!comps || comps.length === 0) {
+      hasColorized = false; // 配色失敗
+      setStatus('閉じた領域が見つかりませんでした。線の端をつないで囲いを作ってから再度「色塗り」を押してください。');
+      // プレビューは線のみ表示（白背景＋線ピクセル）
+      const out = pctx.createImageData(W, H);
+      const od = out.data, bd = base.data;
+      for (let i=0;i<od.length;i+=4) { od[i]=255; od[i+1]=255; od[i+2]=255; od[i+3]=255; }
+      if (barrier) {
+        for (let i=0, idx=0; idx<W*H; idx++, i+=4) {
+          if (barrier[idx]) { od[i]=bd[i]; od[i+1]=bd[i+1]; od[i+2]=bd[i+2]; od[i+3]=255; }
+        }
+      }
+      pctx.putImageData(out, 0, 0);
+      return;
+    }
+
+    // 面積順で配色
+    comps.sort((a,b)=> b.area - a.area);
+
+    // 出力画像（白背景）
+    const out = pctx.createImageData(W, H);
+    const od = out.data;
+    for (let i=0;i<od.length;i+=4) { od[i]=255; od[i+1]=255; od[i+2]=255; od[i+3]=255; }
+
+    // 各コンポーネント塗り
+    comps.forEach((c, k) => {
+      const col = hexToRgb(colors[k % colors.length]);
+      for (const idx of c.pixels) {
+        const i = idx*4;
+        od[i]=col.r; od[i+1]=col.g; od[i+2]=col.b; od[i+3]=255;
+      }
+    });
+
+    // 線（バリア画素のみ）をピクセル上書きで合成
+    const bd = base.data;
+    for (let i=0, idx=0; idx<W*H; idx++, i+=4) {
+      if (barrier[idx]) {
+        od[i]=bd[i]; od[i+1]=bd[i+1]; od[i+2]=bd[i+2]; od[i+3]=255;
+      }
+    }
+
+    // プレビューへ反映
+    pctx.putImageData(out, 0, 0);
+
+    hasColorized = true; // 配色済みフラグ
+    setStatus(`色塗り完了：領域 ${comps.length} 個を配色しました（補正パス ${usedPass+1}/${PASS_PARAMS.length}）。`);
+  });
+
+  // ===== 保存（プレビューPNG） =====
+  saveBtn.addEventListener('click', () => {
+    const W = preview.width, H = preview.height;
+    const tmp = document.createElement('canvas');
+    tmp.width = W; tmp.height = H;
+    const tctx = tmp.getContext('2d');
+    tctx.fillStyle = '#ffffff';
+    tctx.fillRect(0, 0, W, H);
+
+    if (hasColorized) {
+      tctx.drawImage(preview, 0, 0);  // 配色済みならそのまま
+    } else {
+      tctx.drawImage(lineCanvas, 0, 0); // 未配色なら線画
+    }
+
+    if (tmp.toBlob) {
+      tmp.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        triggerDownload(url, 'ai_oe_kakiman.png');
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      }, 'image/png');
+    } else {
+      const url = tmp.toDataURL('image/png');
+      triggerDownload(url, 'ai_oe_kakiman.png');
+    }
+  });
+
+  function triggerDownload(url, filename) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    try { a.click(); } catch (e) { window.open(url, '_blank'); }
+  }
+
+  // ===== リセット =====
+  resetBtn.addEventListener('click', () => {
+    initCanvas(lctx, lineCanvas);
+    initCanvas(pctx, preview);
+    hasColorized = false;
+    setStatus('リセット完了：線を描いて、パレットを選び、色塗りを押してください。');
+  });
+
+  // ===== 画像処理ヘルパー =====
+  function thresholdToBarrier(img, W, H, thLum) {
+    const m = new Uint8Array(W*H);
+    const d = img.data;
+    for (let i=0, idx=0; idx<W*H; idx++, i+=4) {
+      const lum = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
+      m[idx] = (lum <= thLum) ? 1 : 0; // 暗い画素（黒線）を壁に
+    }
+    return m;
+  }
+  function dilateMask(mask, w, h, radius) {
+    let cur = mask;
+    for (let r=0; r<radius; r++) {
+      const next = new Uint8Array(w*h);
+      for (let y=0; y<h; y++) {
+        for (let x=0; x<w; x++) {
+          const i = y*w + x;
+          if (cur[i]) { next[i]=1; continue; }
+          let hit = 0;
+          for (let dy=-1; dy<=1 && !hit; dy++) {
+            for (let dx=-1; dx<=1 && !hit; dx++) {
+              if (dx===0 && dy===0) continue;
+              const nx=x+dx, ny=y+dy;
+              if (nx>=0&&nx<w&&ny>=0&&ny<h) { if (cur[ny*w+nx]) hit=1; }
+            }
+          }
+          next[i] = hit;
+        }
+      }
+      cur = next;
+    }
+    return cur;
+  }
+  function erodeMask(mask, w, h, radius) {
+    let cur = mask;
+    for (let r=0; r<radius; r++) {
+      const next = new Uint8Array(w*h);
+      for (let y=0; y<h; y++) {
+        for (let x=0; x<w; x++) {
+          let keep = 1;
+          for (let dy=-1; dy<=1 && keep; dy++) {
+            for (let dx=-1; dx<=1 && keep; dx++) {
+              const nx=x+dx, ny=y+dy;
+              if (nx<0||ny<0||nx>=w||ny>=h) { keep=0; break; }
+              if (!cur[ny*w+nx]) { keep=0; }
+            }
+          }
+          next[y*w+x] = keep ? 1 : 0;
+        }
+      }
+      cur = next;
+    }
+    return cur;
+  }
+  function computeOutside(mask, w, h) {
+    const outside = new Uint8Array(w*h);
+    const q = [];
+    const push = (x,y) => {
+      const idx = y*w + x;
+      if (mask[idx] || outside[idx]) return;
+      outside[idx] = 1; q.push(idx);
+    };
+    for (let x=0; x<w; x++) { push(x,0); push(x,h-1); }
+    for (let y=0; y<h; y++) { push(0,y); push(w-1,y); }
+    while (q.length) {
+      const idx = q.pop();
+      const x = idx % w, y = (idx / w)|0;
+      const tryPush = (nx,ny) => {
+        if (nx<0||ny<0||nx>=w||ny>=h) return;
+        const nidx = ny*w + nx;
+        if (!mask[nidx] && !outside[nidx]) { outside[nidx]=1; q.push(nidx); }
+      };
+      tryPush(x-1,y); tryPush(x+1,y); tryPush(x,y-1); tryPush(x,y+1);
+    }
+    return outside;
+  }
+  function labelComponents(interiorMask, w, h) {
+    const visited = new Uint8Array(w*h);
+    const comps = [];
+    for (let y=0; y<h; y++) {
+      for (let x=0; x<w; x++) {
+        const s = y*w + x;
+        if (!interiorMask[s] || visited[s]) continue;
+        const q = [s];
+        visited[s]=1;
+        const pixels = [];
+        while (q.length) {
+          const idx = q.pop();
+          pixels.push(idx);
+          const ix = idx % w, iy = (idx / w)|0;
+          const tryPush = (nx,ny) => {
+            if (nx<0||ny<0||nx>=w||ny>=h) return;
+            const nidx = ny*w + nx;
+            if (!visited[nidx] && interiorMask[nidx]) { visited[nidx]=1; q.push(nidx); }
+          };
+          tryPush(ix-1,iy); tryPush(ix+1,iy); tryPush(ix,iy-1); tryPush(ix,iy+1);
+        }
+        comps.push({ pixels, area: pixels.length });
+      }
+    }
+    return comps;
+  }
+  function hexToRgb(hex) {
+    const m = hex.match(/^#?([0-9a-f]{6})$/i);
+    const v = parseInt(m[1],16);
+    return { r:(v>>16)&255, g:(v>>8)&255, b:v&255 };
+  }
+
+  // ===== ステータス表示 =====
+  function setStatus(msg) {
+    statusEl.textContent = msg;
+  }
+
+})();
+</script>
+</body>
+</html>
