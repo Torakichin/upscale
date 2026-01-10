@@ -63,10 +63,8 @@ const status = document.getElementById("status");
 
 let resultUrl = null;
 
-// ★ ここが重要：default を使う
-const UpscalerCtor = window.upscaler.default;
-
-const upscaler = new UpscalerCtor({
+// ✅ 正解：factory 関数として呼ぶ
+const upscaler = window.Upscaler({
   model: "x2",
   wasm: {
     threads: false,
