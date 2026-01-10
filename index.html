@@ -37,7 +37,7 @@ ort.env.wasm.simd = true;
 
 /* --- 超軽量 SR モデル（約3MB / GitHub Raw） --- */
 const MODEL_URL =
-  "https://raw.githubusercontent.com/onnx/models/main/vision/super_resolution/sub_pixel_cnn_2016/model/super_resolution.onnx";
+ "https://cdn.jsdelivr.net/gh/onnx/models@main/vision/super_resolution/sub_pixel_cnn_2016/model/super_resolution.onnx";
 
 let sessionPromise = ort.InferenceSession.create(MODEL_URL);
 
@@ -109,3 +109,4 @@ downloadBtn.onclick = () => {
 </script>
 </body>
 </html>
+
