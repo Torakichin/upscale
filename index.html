@@ -2,18 +2,17 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>UpscalerJS x2 Demo (CDN only)</title>
+<title>UpscalerJS x2 Demo</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body {
   font-family: system-ui, sans-serif;
   background: #0f172a;
   color: #e5e7eb;
-  margin: 0;
   padding: 20px;
 }
 .container { max-width: 900px; margin: auto; }
-button { padding: 8px 14px; font-size: 14px; cursor: pointer; }
+button { padding: 8px 14px; margin-right: 6px; }
 .preview {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -31,7 +30,7 @@ img {
 
 <body>
 <div class="container">
-  <h1>UpscalerJS x2（CDN / GitHub Pages対応）</h1>
+  <h1>UpscalerJS x2（CDN / GitHub Pages）</h1>
 
   <input type="file" id="fileInput" accept="image/*">
   <button id="runBtn" disabled>アップスケール x2</button>
@@ -51,7 +50,7 @@ img {
   <div class="status" id="status">画像を選択してください</div>
 </div>
 
-<!-- UpscalerJS UMD（正解） -->
+<!-- UpscalerJS UMD -->
 <script src="https://cdn.jsdelivr.net/npm/upscaler@1.0.7/dist/umd/upscaler.min.js"></script>
 
 <script>
@@ -64,8 +63,10 @@ const status = document.getElementById("status");
 
 let resultUrl = null;
 
-// グローバル Upscaler を使う
-const upscaler = new window.Upscaler({
+// ★ ここが重要：default を使う
+const UpscalerCtor = window.upscaler.default;
+
+const upscaler = new UpscalerCtor({
   model: "x2",
   wasm: {
     threads: false,
