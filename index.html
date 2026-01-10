@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <title>UpscalerJS x2 Demo (CDN only)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-
 <style>
 body {
   font-family: system-ui, sans-serif;
@@ -13,36 +12,20 @@ body {
   margin: 0;
   padding: 20px;
 }
-h1 {
-  font-size: 1.2rem;
-}
-.container {
-  max-width: 900px;
-  margin: auto;
-}
-.controls {
-  margin-bottom: 16px;
-}
-button {
-  padding: 8px 14px;
-  font-size: 14px;
-  cursor: pointer;
-}
+.container { max-width: 900px; margin: auto; }
+button { padding: 8px 14px; font-size: 14px; cursor: pointer; }
 .preview {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+  margin-top: 16px;
 }
 img {
   max-width: 100%;
   border: 1px solid #334155;
   background: #020617;
 }
-.status {
-  margin-top: 12px;
-  font-size: 13px;
-  opacity: 0.85;
-}
+.status { margin-top: 12px; font-size: 13px; opacity: .85; }
 </style>
 </head>
 
@@ -50,11 +33,9 @@ img {
 <div class="container">
   <h1>UpscalerJS x2（CDN / GitHub Pages対応）</h1>
 
-  <div class="controls">
-    <input type="file" id="fileInput" accept="image/*">
-    <button id="runBtn" disabled>アップスケール x2</button>
-    <button id="downloadBtn" disabled>結果をダウンロード</button>
-  </div>
+  <input type="file" id="fileInput" accept="image/*">
+  <button id="runBtn" disabled>アップスケール x2</button>
+  <button id="downloadBtn" disabled>ダウンロード</button>
 
   <div class="preview">
     <div>
@@ -70,10 +51,10 @@ img {
   <div class="status" id="status">画像を選択してください</div>
 </div>
 
-<!-- UpscalerJS -->
-<script type="module">
-import Upscaler from "https://cdn.jsdelivr.net/npm/upscaler@1.0.7/dist/browser.js";
+<!-- UpscalerJS UMD（正解） -->
+<script src="https://cdn.jsdelivr.net/npm/upscaler@1.0.7/dist/umd/upscaler.min.js"></script>
 
+<script>
 const fileInput = document.getElementById("fileInput");
 const runBtn = document.getElementById("runBtn");
 const downloadBtn = document.getElementById("downloadBtn");
@@ -81,10 +62,10 @@ const inputImg = document.getElementById("inputImg");
 const outputImg = document.getElementById("outputImg");
 const status = document.getElementById("status");
 
-let outputBlobUrl = null;
+let resultUrl = null;
 
-// Upscaler 初期化（軽量 x2 モデル）
-const upscaler = new Upscaler({
+// グローバル Upscaler を使う
+const upscaler = new window.Upscaler({
   model: "x2",
   wasm: {
     threads: false,
@@ -92,39 +73,33 @@ const upscaler = new Upscaler({
   }
 });
 
-fileInput.addEventListener("change", () => {
+fileInput.onchange = () => {
   const file = fileInput.files[0];
   if (!file) return;
-
-  const url = URL.createObjectURL(file);
-  inputImg.src = url;
-  outputImg.src = "";
+  inputImg.src = URL.createObjectURL(file);
   runBtn.disabled = false;
   downloadBtn.disabled = true;
   status.textContent = "準備完了";
-});
+};
 
-runBtn.addEventListener("click", async () => {
+runBtn.onclick = async () => {
+  status.textContent = "アップスケール中…";
   runBtn.disabled = true;
-  status.textContent = "アップスケール中…（数秒かかります）";
 
   const result = await upscaler.upscale(inputImg);
-
   outputImg.src = result;
-  outputBlobUrl = result;
+  resultUrl = result;
 
   downloadBtn.disabled = false;
   status.textContent = "完了";
-});
+};
 
-downloadBtn.addEventListener("click", () => {
-  if (!outputBlobUrl) return;
-
+downloadBtn.onclick = () => {
   const a = document.createElement("a");
-  a.href = outputBlobUrl;
+  a.href = resultUrl;
   a.download = "upscaled_x2.png";
   a.click();
-});
+};
 </script>
 </body>
 </html>
