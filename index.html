@@ -51,7 +51,8 @@ img {
 </div>
 
 <!-- UpscalerJS UMD -->
-<script src="https://cdn.jsdelivr.net/npm/upscaler@1.0.7/dist/umd/upscaler.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/upscaler@1.0.0-beta.17/dist/browser/umd/upscaler.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@upscalerjs/default-model@1.0.0-beta.17/dist/browser/umd/index.min.js"></script>
 
 <script>
 const fileInput = document.getElementById("fileInput");
@@ -63,18 +64,19 @@ const status = document.getElementById("status");
 
 let resultUrl = null;
 
-// ✅ 正解：factory 関数として呼ぶ
-const upscaler = window.Upscaler({
-  model: "x2",
-  wasm: {
-    threads: false,
-    simd: true
-  }
+// ✅ 修正：'new' を付け、モデルを指定する
+// window.DefaultUpscalerModel は上記2つ目のスクリプトでロードされます
+const upscaler = new Upscaler({
+  model: window.DefaultUpscalerModel
 });
 
 fileInput.onchange = () => {
   const file = fileInput.files[0];
   if (!file) return;
+  
+  // 前のURLを解放（メモリリーク防止）
+  if (inputImg.src.startsWith('blob:')) URL.revokeObjectURL(inputImg.src);
+  
   inputImg.src = URL.createObjectURL(file);
   runBtn.disabled = false;
   downloadBtn.disabled = true;
@@ -82,15 +84,22 @@ fileInput.onchange = () => {
 };
 
 runBtn.onclick = async () => {
-  status.textContent = "アップスケール中…";
+  status.textContent = "アップスケール中（初回は数秒かかります）…";
   runBtn.disabled = true;
 
-  const result = await upscaler.upscale(inputImg);
-  outputImg.src = result;
-  resultUrl = result;
-
-  downloadBtn.disabled = false;
-  status.textContent = "完了";
+  try {
+    // 確実に画像が読み込まれてから実行
+    const result = await upscaler.upscale(inputImg);
+    outputImg.src = result;
+    resultUrl = result;
+    downloadBtn.disabled = false;
+    status.textContent = "完了";
+  } catch (err) {
+    console.error(err);
+    status.textContent = "エラーが発生しました: " + err.message;
+  } finally {
+    runBtn.disabled = false;
+  }
 };
 
 downloadBtn.onclick = () => {
@@ -102,3 +111,4 @@ downloadBtn.onclick = () => {
 </script>
 </body>
 </html>
+
