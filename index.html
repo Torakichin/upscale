@@ -2,22 +2,21 @@
 <html lang="ja">
 <head>
     <meta charset="utf-8">
-    <title>UpscalerJS x2 - Final Version</title>
+    <title>UpscalerJS x2 - Stable Version</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: system-ui, sans-serif; background: #0f172a; color: #e5e7eb; padding: 20px; line-height: 1.6; }
         .container { max-width: 800px; margin: auto; }
-        .controls { background: #1e293b; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        .controls { background: #1e293b; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #334155; }
         h1 { margin-top: 0; font-size: 1.4rem; color: #60a5fa; }
-        input[type="file"] { margin-bottom: 15px; display: block; color: #94a3b8; }
-        button { padding: 10px 20px; margin-right: 8px; cursor: pointer; border-radius: 6px; border: none; font-weight: bold; transition: 0.2s; }
+        input[type="file"] { margin-bottom: 15px; display: block; }
+        button { padding: 10px 20px; margin-right: 8px; cursor: pointer; border-radius: 6px; border: none; font-weight: bold; }
         #runBtn { background: #3b82f6; color: white; }
         #runBtn:disabled { background: #475569; opacity: 0.5; cursor: not-allowed; }
         #downloadBtn { background: #10b981; color: white; }
         #downloadBtn:disabled { background: #475569; opacity: 0.5; }
         .preview { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px; }
         .preview-box { background: #1e293b; padding: 10px; border-radius: 8px; border: 1px solid #334155; }
-        .preview-box p { margin: 0 0 10px 0; font-size: 13px; color: #94a3b8; font-weight: bold; }
         img { max-width: 100%; height: auto; border: 1px solid #475569; background: #020617; display: block; border-radius: 4px; }
         .status { margin-top: 15px; padding: 12px; background: #020617; border-left: 4px solid #3b82f6; border-radius: 4px; font-family: monospace; font-size: 13px; color: #cbd5e1; }
     </style>
@@ -30,7 +29,7 @@
         <input type="file" id="fileInput" accept="image/*">
         <button id="runBtn" disabled>アップスケール開始</button>
         <button id="downloadBtn" disabled>画像を保存</button>
-        <div id="status" class="status">ライブラリを読み込み中...</div>
+        <div id="status" class="status">ライブラリ読み込み中...</div>
     </div>
 
     <div class="preview">
@@ -45,9 +44,9 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/upscaler@1.0.0-beta.33/dist/browser/umd/upscaler.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@upscalerjs/default-model@1.0.0-beta.33/dist/browser/umd/index.min.js"></script>
+<script src="https://unpkg.com/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+<script src="https://unpkg.com/upscaler@1.0.0-beta.33/dist/browser/umd/upscaler.min.js"></script>
+<script src="https://unpkg.com/@upscalerjs/default-model@1.0.0-beta.33/dist/browser/umd/index.min.js"></script>
 
 <script>
     const fileInput = document.getElementById("fileInput");
@@ -60,69 +59,64 @@
     let upscalerInstance = null;
     let resultUrl = null;
 
-    // 1. ライブラリが正しく読み込まれたか確認して初期化
-    window.onload = () => {
-        try {
-            if (typeof Upscaler === 'undefined') {
-                throw new Error("UpscalerJSが読み込まれていません");
+    // 初期化チェック
+    window.addEventListener('load', () => {
+        setTimeout(() => {
+            try {
+                // 各ライブラリが window オブジェクトに存在するか確認
+                if (typeof tf === 'undefined') throw new Error("TensorFlow.js の読み込みに失敗しました");
+                if (typeof Upscaler === 'undefined') throw new Error("Upscaler 本体が読み込まれていません");
+                if (typeof window.DefaultUpscalerModel === 'undefined') throw new Error("モデルデータが読み込まれていません");
+
+                upscalerInstance = new Upscaler({
+                    model: window.DefaultUpscalerModel
+                });
+
+                status.textContent = "準備完了：画像を選択してください";
+            } catch (err) {
+                console.error(err);
+                status.textContent = "【重大なエラー】 " + err.message + "。ページを更新してください。";
+                status.style.borderLeftColor = "red";
             }
+        }, 500); // 念のため少し遅らせて初期化
+    });
 
-            // UMD版では window.DefaultUpscalerModel にモデルデータが入ります
-            upscalerInstance = new Upscaler({
-                model: window.DefaultUpscalerModel
-            });
-
-            status.textContent = "準備完了：画像を選択してください";
-        } catch (err) {
-            console.error(err);
-            status.textContent = "エラー: ライブラリの読み込みに失敗しました。";
-        }
-    };
-
-    // 2. 画像選択時の処理
     fileInput.onchange = () => {
         const file = fileInput.files[0];
         if (!file) return;
         
         if (inputImg.src.startsWith('blob:')) URL.revokeObjectURL(inputImg.src);
-        
         const url = URL.createObjectURL(file);
         inputImg.src = url;
+        
         runBtn.disabled = false;
         downloadBtn.disabled = true;
         outputImg.src = "";
-        status.textContent = "画像が読み込まれました。開始ボタンを押してください。";
+        status.textContent = "画像が読み込まれました。";
     };
 
-    // 3. 実行処理
     runBtn.onclick = async () => {
         if (!upscalerInstance) return;
 
-        status.textContent = "AI処理中... 数秒〜数十秒かかります。";
+        status.textContent = "処理中...（初回はモデルの展開に時間がかかります）";
         runBtn.disabled = true;
 
         try {
-            // 画像が完全に読み込まれていることを確認
-            if (!inputImg.complete) {
-                await new Promise(r => inputImg.onload = r);
-            }
-
-            // 実行
+            // Upscale処理の実行
             const result = await upscalerInstance.upscale(inputImg);
             
             outputImg.src = result;
             resultUrl = result;
             downloadBtn.disabled = false;
-            status.textContent = "完了しました！";
+            status.textContent = "アップスケール完了！";
         } catch (err) {
-            console.error("Upscale error:", err);
-            status.textContent = "エラー: " + err.message;
+            console.error(err);
+            status.textContent = "処理エラー: " + err.message;
         } finally {
             runBtn.disabled = false;
         }
     };
 
-    // 4. 保存処理
     downloadBtn.onclick = () => {
         if (!resultUrl) return;
         const a = document.createElement("a");
