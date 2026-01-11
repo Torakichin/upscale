@@ -2,146 +2,136 @@
 <html lang="ja">
 <head>
     <meta charset="utf-8">
-    <title>UpscalerJS x2 - Ultra Stable</title>
+    <title>AI Upscaler - Private Browser Tool</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { font-family: system-ui, sans-serif; background: #0f172a; color: #e5e7eb; padding: 20px; line-height: 1.6; }
-        .container { max-width: 800px; margin: auto; }
-        .controls { background: #1e293b; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #334155; }
-        h1 { margin-top: 0; font-size: 1.2rem; color: #60a5fa; border-bottom: 1px solid #334155; padding-bottom: 10px; }
-        .input-group { margin: 20px 0; }
-        button { padding: 12px 24px; margin-right: 8px; cursor: pointer; border-radius: 6px; border: none; font-weight: bold; transition: 0.3s; }
-        #runBtn { background: #3b82f6; color: white; }
-        #runBtn:disabled { background: #475569; opacity: 0.5; cursor: not-allowed; }
-        #downloadBtn { background: #10b981; color: white; }
-        #downloadBtn:disabled { background: #475569; opacity: 0.5; }
-        .preview { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-        .preview-box { background: #1e293b; padding: 15px; border-radius: 8px; border: 1px solid #334155; text-align: center; }
-        .preview-box p { margin: 0 0 10px 0; font-size: 12px; color: #94a3b8; text-transform: uppercase; }
-        img { max-width: 100%; height: auto; border: 1px solid #475569; background: #020617; border-radius: 4px; }
-        .status { margin-top: 20px; padding: 15px; background: #020617; border-radius: 6px; font-family: monospace; font-size: 13px; color: #3b82f6; border: 1px solid #1e293b; }
+        :root { --bg: #0f172a; --card: #1e293b; --accent: #3b82f6; --text: #f8fafc; }
+        body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 20px; line-height: 1.6; }
+        .container { max-width: 900px; margin: auto; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header h1 { color: var(--accent); margin-bottom: 10px; }
+        .header p { opacity: 0.8; font-size: 0.9rem; }
+        
+        .box { background: var(--card); padding: 24px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 20px; }
+        .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+        
+        button { background: var(--accent); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button:disabled { background: #475569; cursor: not-allowed; opacity: 0.7; }
+        button:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.1); }
+        
+        .status { margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px; font-family: monospace; font-size: 13px; color: var(--accent); }
+        
+        .preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .img-card { background: var(--card); padding: 12px; border-radius: 8px; border: 1px solid #334155; }
+        .img-card span { display: block; margin-bottom: 8px; font-size: 0.8rem; color: #94a3b8; font-weight: bold; }
+        img { width: 100%; height: auto; border-radius: 4px; background: #020617; display: block; min-height: 100px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <div class="controls">
-        <h1>UpscalerJS x2 ツール</h1>
-        <div class="input-group">
-            <input type="file" id="fileInput" accept="image/*">
-        </div>
-        <button id="runBtn" disabled>アップスケール実行</button>
-        <button id="downloadBtn" disabled>画像を保存</button>
-        <div id="status" class="status">システム起動中...</div>
+    <div class="header">
+        <h1>AI Image Upscaler</h1>
+        <p>画像はサーバーに送信されず、あなたのブラウザ内だけで処理されます（プライバシー保護）</p>
     </div>
 
-    <div class="preview">
-        <div class="preview-box">
-            <p>Before</p>
+    <div class="box">
+        <div class="controls">
+            <input type="file" id="fileInput" accept="image/*">
+            <button id="runBtn" disabled>AI実行 (x2)</button>
+            <button id="downloadBtn" disabled>保存</button>
+        </div>
+        <div id="status" class="status">ライブラリをセットアップ中...</div>
+    </div>
+
+    <div class="preview-grid">
+        <div class="img-card">
+            <span>元画像 (Original)</span>
             <img id="inputImg">
         </div>
-        <div class="preview-box">
-            <p>After (x2)</p>
+        <div class="img-card">
+            <span>AI拡大後 (Upscaled x2)</span>
             <img id="outputImg">
         </div>
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/upscaler@1.0.0-beta.33/dist/browser/umd/upscaler.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@upscalerjs/default-model@1.0.0-beta.33/dist/browser/umd/index.min.js"></script>
+<script type="module">
+    // --- 確実に動かすための ESM Bundle 指定 ---
+    // ?bundle をつけることで依存関係（TF.js）をすべて一括で解決した状態でロードします
+    import Upscaler from 'https://esm.sh/upscaler@1.0.0-beta.33?bundle';
+    import x2 from 'https://esm.sh/@upscalerjs/default-model@1.0.0-beta.33/x2?bundle';
 
-<script>
-    const fileInput = document.getElementById("fileInput");
-    const runBtn = document.getElementById("runBtn");
-    const downloadBtn = document.getElementById("downloadBtn");
-    const inputImg = document.getElementById("inputImg");
-    const outputImg = document.getElementById("outputImg");
-    const status = document.getElementById("status");
+    const elements = {
+        file: document.getElementById('fileInput'),
+        run: document.getElementById('runBtn'),
+        down: document.getElementById('downloadBtn'),
+        input: document.getElementById('inputImg'),
+        output: document.getElementById('outputImg'),
+        status: document.getElementById('status')
+    };
 
-    let upscaler = null;
+    let upscaler;
     let resultUrl = null;
 
-    // --- 起動シーケンス ---
-    async function initApp() {
-        status.textContent = "ライブラリの確認中...";
-        
-        // ライブラリがロードされるまで最大10秒待機する関数
-        const waitForLib = (name, timeout = 10000) => {
-            return new Promise((resolve, reject) => {
-                const start = Date.now();
-                const check = () => {
-                    if (window[name] || (name === 'DefaultUpscalerModel' && window.DefaultUpscalerModel)) {
-                        resolve();
-                    } else if (Date.now() - start > timeout) {
-                        reject(new Error(name + " の読み込みがタイムアウトしました"));
-                    } else {
-                        setTimeout(check, 100);
-                    }
-                };
-                check();
-            });
-        };
-
+    // 初期化
+    async function init() {
         try {
-            await waitForLib('tf');
-            status.textContent = "TensorFlow 準備完了...";
-            await waitForLib('Upscaler');
-            status.textContent = "Upscaler 準備完了...";
-            await waitForLib('DefaultUpscalerModel');
-
-            upscaler = new window.Upscaler({
-                model: window.DefaultUpscalerModel
-            });
-
-            status.textContent = "すべての準備が完了しました。画像を選択してください。";
-            status.style.color = "#10b981";
-        } catch (err) {
-            console.error(err);
-            status.textContent = "【エラー】" + err.message + "。ブラウザを更新してください。";
-            status.style.color = "#ef4444";
+            // UpscalerJSのインスタンス作成
+            upscaler = new Upscaler({ model: x2 });
+            elements.status.textContent = "準備完了：画像を選択してください";
+        } catch (e) {
+            elements.status.textContent = "初期化エラー: " + e.message;
+            console.error(e);
         }
     }
+    init();
 
-    initApp();
-
-    fileInput.onchange = () => {
-        const file = fileInput.files[0];
+    elements.file.onchange = (e) => {
+        const file = e.target.files[0];
         if (!file) return;
+
+        // メモリリーク防止
+        if (elements.input.src.startsWith('blob:')) URL.revokeObjectURL(elements.input.src);
         
-        const url = URL.createObjectURL(file);
-        inputImg.src = url;
-        runBtn.disabled = false;
-        downloadBtn.disabled = true;
-        outputImg.src = "";
-        status.textContent = "画像を読み込みました。実行ボタンを押してください。";
+        elements.input.src = URL.createObjectURL(file);
+        elements.run.disabled = false;
+        elements.down.disabled = true;
+        elements.output.src = "";
+        elements.status.textContent = "画像を読み込みました。";
     };
 
-    runBtn.onclick = async () => {
-        if (!upscaler) return;
-        status.textContent = "AI処理を実行中... しばらくお待ちください。";
-        runBtn.disabled = true;
+    elements.run.onclick = async () => {
+        elements.run.disabled = true;
+        elements.status.textContent = "AI処理中...（このまま数秒お待ちください）";
 
         try {
-            const result = await upscaler.upscale(inputImg);
-            outputImg.src = result;
+            // 画像の読み込み完了を保証
+            if (!elements.input.complete) {
+                await new Promise(res => elements.input.onload = res);
+            }
+
+            // AIアップスケール実行
+            const result = await upscaler.upscale(elements.input);
+            
+            elements.output.src = result;
             resultUrl = result;
-            downloadBtn.disabled = false;
-            status.textContent = "アップスケールに成功しました！";
+            elements.down.disabled = false;
+            elements.status.textContent = "完了！";
         } catch (err) {
+            elements.status.textContent = "エラー: " + err.message;
             console.error(err);
-            status.textContent = "エラー: " + err.message;
         } finally {
-            runBtn.disabled = false;
+            elements.run.disabled = false;
         }
     };
 
-    downloadBtn.onclick = () => {
+    elements.down.onclick = () => {
         if (!resultUrl) return;
-        const a = document.createElement("a");
-        a.href = resultUrl;
-        a.download = "upscaled.png";
-        a.click();
+        const link = document.createElement('a');
+        link.href = resultUrl;
+        link.download = `upscaled_${Date.now()}.png`;
+        link.click();
     };
 </script>
 
