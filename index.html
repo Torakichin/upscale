@@ -2,138 +2,83 @@
 <html lang="ja">
 <head>
     <meta charset="utf-8">
-    <title>AI Upscaler - Private Browser Tool</title>
+    <title>Safe AI Upscaler</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        :root { --bg: #0f172a; --card: #1e293b; --accent: #3b82f6; --text: #f8fafc; }
-        body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 20px; line-height: 1.6; }
-        .container { max-width: 900px; margin: auto; }
-        .header { text-align: center; margin-bottom: 30px; }
-        .header h1 { color: var(--accent); margin-bottom: 10px; }
-        .header p { opacity: 0.8; font-size: 0.9rem; }
-        
-        .box { background: var(--card); padding: 24px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 20px; }
-        .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-        
-        button { background: var(--accent); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        button:disabled { background: #475569; cursor: not-allowed; opacity: 0.7; }
-        button:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.1); }
-        
-        .status { margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px; font-family: monospace; font-size: 13px; color: var(--accent); }
-        
-        .preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-        .img-card { background: var(--card); padding: 12px; border-radius: 8px; border: 1px solid #334155; }
-        .img-card span { display: block; margin-bottom: 8px; font-size: 0.8rem; color: #94a3b8; font-weight: bold; }
-        img { width: 100%; height: auto; border-radius: 4px; background: #020617; display: block; min-height: 100px; }
+        body { font-family: sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; text-align: center; }
+        .box { background: #1e293b; padding: 20px; border-radius: 12px; max-width: 800px; margin: auto; border: 1px solid #334155; }
+        .status { margin: 15px 0; padding: 10px; background: #020617; color: #3b82f6; font-family: monospace; border-radius: 4px; }
+        .preview { display: flex; gap: 10px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+        img { max-width: 100%; height: auto; border: 1px solid #475569; background: #000; border-radius: 4px; width: 350px; }
+        button { padding: 10px 20px; cursor: pointer; font-weight: bold; border-radius: 6px; border: none; background: #3b82f6; color: white; }
+        button:disabled { background: #475569; cursor: not-allowed; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <div class="header">
-        <h1>AI Image Upscaler</h1>
-        <p>画像はサーバーに送信されず、あなたのブラウザ内だけで処理されます（プライバシー保護）</p>
-    </div>
+<div class="box">
+    <h2>ブラウザ完結型 AI拡大</h2>
+    <p style="font-size: 0.8rem; opacity: 0.7;">画像はサーバーへ送信されません。あなたのPC内で処理されます。</p>
+    
+    <input type="file" id="fileInput" accept="image/*">
+    <button id="runBtn" disabled>実行 (x2)</button>
+    
+    <div id="status" class="status">ライブラリをロード中...</div>
 
-    <div class="box">
-        <div class="controls">
-            <input type="file" id="fileInput" accept="image/*">
-            <button id="runBtn" disabled>AI実行 (x2)</button>
-            <button id="downloadBtn" disabled>保存</button>
-        </div>
-        <div id="status" class="status">ライブラリをセットアップ中...</div>
-    </div>
-
-    <div class="preview-grid">
-        <div class="img-card">
-            <span>元画像 (Original)</span>
-            <img id="inputImg">
-        </div>
-        <div class="img-card">
-            <span>AI拡大後 (Upscaled x2)</span>
-            <img id="outputImg">
-        </div>
+    <div class="preview">
+        <div><small>元画像</small><br><img id="inputImg"></div>
+        <div><small>AI拡大</small><br><img id="outputImg"></div>
     </div>
 </div>
 
 <script type="module">
-    // --- 確実に動かすための ESM Bundle 指定 ---
-    // ?bundle をつけることで依存関係（TF.js）をすべて一括で解決した状態でロードします
-    import Upscaler from 'https://esm.sh/upscaler@1.0.0-beta.33?bundle';
-    import x2 from 'https://esm.sh/@upscalerjs/default-model@1.0.0-beta.33/x2?bundle';
+    // Skypackは依存関係をパッケージ化した状態で提供してくれるため、404エラーに非常に強いです。
+    import Upscaler from 'https://cdn.skypack.dev/upscaler';
+    import x2 from 'https://cdn.skypack.dev/@upscalerjs/default-model/x2';
 
-    const elements = {
-        file: document.getElementById('fileInput'),
-        run: document.getElementById('runBtn'),
-        down: document.getElementById('downloadBtn'),
-        input: document.getElementById('inputImg'),
-        output: document.getElementById('outputImg'),
-        status: document.getElementById('status')
-    };
+    const fileInput = document.getElementById('fileInput');
+    const runBtn = document.getElementById('runBtn');
+    const inputImg = document.getElementById('inputImg');
+    const outputImg = document.getElementById('outputImg');
+    const status = document.getElementById('status');
 
     let upscaler;
-    let resultUrl = null;
 
     // 初期化
-    async function init() {
+    (async () => {
         try {
-            // UpscalerJSのインスタンス作成
             upscaler = new Upscaler({ model: x2 });
-            elements.status.textContent = "準備完了：画像を選択してください";
+            status.textContent = "準備完了！画像を選んでください。";
         } catch (e) {
-            elements.status.textContent = "初期化エラー: " + e.message;
+            status.textContent = "ロード失敗。ブラウザのセキュリティ設定を確認してください。";
             console.error(e);
         }
-    }
-    init();
+    })();
 
-    elements.file.onchange = (e) => {
-        const file = e.target.files[0];
+    fileInput.onchange = () => {
+        const file = fileInput.files[0];
         if (!file) return;
-
-        // メモリリーク防止
-        if (elements.input.src.startsWith('blob:')) URL.revokeObjectURL(elements.input.src);
-        
-        elements.input.src = URL.createObjectURL(file);
-        elements.run.disabled = false;
-        elements.down.disabled = true;
-        elements.output.src = "";
-        elements.status.textContent = "画像を読み込みました。";
+        inputImg.src = URL.createObjectURL(file);
+        runBtn.disabled = false;
+        status.textContent = "「実行」を押すとAI処理を開始します。";
     };
 
-    elements.run.onclick = async () => {
-        elements.run.disabled = true;
-        elements.status.textContent = "AI処理中...（このまま数秒お待ちください）";
+    runBtn.onclick = async () => {
+        runBtn.disabled = true;
+        status.textContent = "AI計算中...（初回は10〜20秒ほどかかります）";
 
         try {
-            // 画像の読み込み完了を保証
-            if (!elements.input.complete) {
-                await new Promise(res => elements.input.onload = res);
-            }
-
-            // AIアップスケール実行
-            const result = await upscaler.upscale(elements.input);
-            
-            elements.output.src = result;
-            resultUrl = result;
-            elements.down.disabled = false;
-            elements.status.textContent = "完了！";
+            // upscale関数の呼び出し
+            const result = await upscaler.upscale(inputImg);
+            outputImg.src = result;
+            status.textContent = "完了しました！画像を右クリックで保存できます。";
         } catch (err) {
-            elements.status.textContent = "エラー: " + err.message;
+            status.textContent = "エラー発生: " + err.message;
             console.error(err);
         } finally {
-            elements.run.disabled = false;
+            runBtn.disabled = false;
         }
     };
-
-    elements.down.onclick = () => {
-        if (!resultUrl) return;
-        const link = document.createElement('a');
-        link.href = resultUrl;
-        link.download = `upscaled_${Date.now()}.png`;
-        link.click();
-    };
 </script>
-
 </body>
 </html>
