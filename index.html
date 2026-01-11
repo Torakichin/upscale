@@ -20,7 +20,7 @@
         .preview-box { background: #1e293b; padding: 10px; border-radius: 8px; border: 1px solid #334155; }
         .preview-box p { margin: 0 0 10px 0; font-size: 13px; color: #94a3b8; font-weight: bold; }
         img { max-width: 100%; height: auto; border: 1px solid #475569; background: #020617; display: block; border-radius: 4px; }
-        .status { margin-top: 15px; padding: 10px 15px; background: #020617; border-left: 4px solid #3b82f6; border-radius: 4px; font-family: monospace; font-size: 13px; }
+        .status { margin-top: 15px; padding: 10px 15px; background: #020617; border-left: 4px solid #3b82f6; border-radius: 4px; font-family: monospace; font-size: 13px; min-height: 20px;}
     </style>
 </head>
 <body>
@@ -47,10 +47,9 @@
 </div>
 
 <script type="module">
-    // ESM(ESモジュール)を使用してインポート
-    // これにより依存関係(TensorFlow.js)が自動的に解決されます
-    import Upscaler from 'https://esm.run/upscaler';
-    import x2 from 'https://esm.run/@upscalerjs/default-model/x2';
+    // 解決策：esm.sh を使用して、モデルのパスを明示的に指定します
+    import Upscaler from 'https://esm.sh/upscaler@1.0.0-beta.17';
+    import x2 from 'https://esm.sh/@upscalerjs/default-model@1.0.0-beta.17/x2';
 
     const fileInput = document.getElementById("fileInput");
     const runBtn = document.getElementById("runBtn");
@@ -62,34 +61,56 @@
     let upscaler;
     let resultUrl = null;
 
-    // 初期化
-    try {
-        upscaler = new Upscaler({
-            model: x2
-        });
-        status.textContent = "準備完了：画像を選択してください";
-    } catch (err) {
-        status.textContent = "初期化エラー: " + err.message;
+    // 初期化関数
+    async function init() {
+        try {
+            status.textContent = "AIモデルを読み込み中...";
+            
+            // Upscalerを初期化
+            upscaler = new Upscaler({
+                model: x2
+            });
+            
+            status.textContent = "準備完了：画像を選択してください";
+        } catch (err) {
+            console.error("Initialization error:", err);
+            status.textContent = "初期化エラー: " + err.message;
+        }
     }
+
+    // 実行
+    init();
 
     fileInput.onchange = () => {
         const file = fileInput.files[0];
         if (!file) return;
+        
+        // メモリ管理：古いURLを解放
+        if (inputImg.src.startsWith('blob:')) URL.revokeObjectURL(inputImg.src);
         
         const url = URL.createObjectURL(file);
         inputImg.src = url;
         runBtn.disabled = false;
         downloadBtn.disabled = true;
         outputImg.src = "";
-        status.textContent = "画像が読み込まれました。開始ボタンを押してください。";
+        status.textContent = "画像が読み込まれました。";
     };
 
     runBtn.onclick = async () => {
-        status.textContent = "処理中... ブラウザを閉じないでください。";
+        if (!upscaler) {
+            status.textContent = "エラー：モデルがロードされていません";
+            return;
+        }
+
+        status.textContent = "処理中...（数秒〜数十秒かかります）";
         runBtn.disabled = true;
 
         try {
-            // upscaleメソッドに直接画像要素を渡します
+            // 画像の読み込み完了を待機
+            if (!inputImg.complete) {
+                await new Promise(resolve => inputImg.onload = resolve);
+            }
+
             const result = await upscaler.upscale(inputImg);
             
             outputImg.src = result;
@@ -97,8 +118,8 @@
             downloadBtn.disabled = false;
             status.textContent = "完了しました！";
         } catch (err) {
-            console.error(err);
-            status.textContent = "エラー: " + err.message;
+            console.error("Upscale error:", err);
+            status.textContent = "処理エラー: " + err.message;
         } finally {
             runBtn.disabled = false;
         }
@@ -108,7 +129,7 @@
         if (!resultUrl) return;
         const a = document.createElement("a");
         a.href = resultUrl;
-        a.download = "upscaled.png";
+        a.download = "upscaled_image.png";
         a.click();
     };
 </script>
